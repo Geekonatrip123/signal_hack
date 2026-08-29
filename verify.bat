@@ -98,6 +98,15 @@ if not errorlevel 1 (
 )
 :redisdone
 
+REM WSL terminates the whole distro once the last wsl.exe client disconnects, and
+REM that SIGTERMs the Redis container with it -- observed dying 16s after start.
+REM Hold one client open for the duration of the run and drop it at teardown.
+%PY% -c "import redis,sys;sys.exit(0 if redis.Redis(port=6379,socket_connect_timeout=3).ping() else 1)" 2>nul
+if not errorlevel 1 (
+    powershell -NoProfile -Command "$p = Start-Process -FilePath 'wsl.exe' -ArgumentList '-d','%WSL_DISTRO%','-u','root','--','sleep','3600' -PassThru -WindowStyle Hidden; $p.Id | Out-File -Encoding ascii '%OUT%\wsl.pid'" >nul 2>&1
+    echo     holding the WSL distro open so the container survives the run
+)
+
 REM ------------------------------------------------------------- 3. services up
 set /a STEP+=1
 echo.
@@ -164,6 +173,11 @@ REM -------------------------------------------------------------------- 7. smok
 set /a STEP+=1
 echo.
 echo [%STEP%] Topology smoke ^(expect 20 passed, 0 failed, 0 skipped^)
+%PY% -c "import redis,sys;sys.exit(0 if redis.Redis(port=6379,socket_connect_timeout=3).ping() else 1)" 2>nul
+if errorlevel 1 (
+    echo     WARNING: Redis went away since step 2. The stream checks below will
+    echo              fail for that reason and not for anything in the code.
+)
 %PY% smoke.py >"%OUT%\smoke.txt" 2>&1
 if errorlevel 1 (
     echo     FAILED -- see %OUT%\smoke.txt
@@ -241,6 +255,7 @@ if errorlevel 1 (
 
 REM ------------------------------------------------------------------- teardown
 :teardown
+for /f "delims=" %%p in ('type "%OUT%\wsl.pid" 2^>nul') do taskkill /PID %%p /T /F >nul 2>&1
 echo.
 if "%STARTED_SERVICES%"=="1" (
     if "%KEEP%"=="1" (

@@ -57,6 +57,12 @@ it lives in WSL. `REDIS_URL` defaults to `redis://localhost:6379/0`.
 > **`wsl --shutdown` kills Redis.** The container has no restart policy, so bring it
 > back with `wsl -d Ubuntu-24.04 -- docker start palimpsest-redis`.
 
+> **WSL tears the distro down once the last `wsl.exe` client disconnects**, and that
+> SIGTERMs the container with it — observed dying 16 seconds after `docker compose up`.
+> `verify.bat` holds one hidden `wsl.exe` client open for the length of the run and
+> drops it at teardown. If you start Redis by hand, keep a WSL terminal open or the
+> container will vanish under you a few seconds later.
+
 ---
 
 ## Step 1 — Remove remnants
@@ -304,6 +310,7 @@ effect returns its cached result and never re-enters the ledger.
 | `step_replayed` when you expected execution | Stale `.palimpsest\shared.db`; clear it |
 | `HTTP 422 ... "loc":["query","body"]` | A FastAPI model was not resolved — see the note atop `palimpsest/services.py` |
 | `services down: [...]` | `run_services.py` is not running, or a stale process holds the port |
+| `XAUTOCLAIM returned nothing`, then steps 8-10 fail | Redis died mid-run. Check `docker ps -a`: a 16-second lifetime and `exit=0` means WSL tore the distro down, not a code fault |
 | ledger counts moved in step 10 | A genuine exactly-once violation. This is the one that matters |
 
 ---
