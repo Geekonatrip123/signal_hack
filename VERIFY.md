@@ -10,8 +10,12 @@ Expected last line: **`ALL CHECKS PASSED`**, exit code 0. Anything else means re
 `_verify_out\`, which keeps the full output of every step.
 
 ```
-verify.bat --keep     leave the effect services running afterwards
+verify.bat --keep     leave the effect services and Redis running afterwards
 ```
+
+Use `--keep` before a demo: it verifies everything and then hands you a live topology
+to point the dashboard at. Pids are left in `_verify_out\services.pid` and
+`_verify_out\wsl.pid`; `taskkill /PID <pid> /T /F` on each stops it.
 
 This document explains what each step does, **why it is there**, and what its output
 should look like — so you can run the commands by hand and know whether the answer is

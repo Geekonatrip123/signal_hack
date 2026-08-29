@@ -255,12 +255,17 @@ if errorlevel 1 (
 
 REM ------------------------------------------------------------------- teardown
 :teardown
-for /f "delims=" %%p in ('type "%OUT%\wsl.pid" 2^>nul') do taskkill /PID %%p /T /F >nul 2>&1
+REM --keep means "leave it usable". Releasing the WSL client would let the distro go
+REM down and take Redis with it, so hold it for as long as the services live.
+if not "%KEEP%"=="1" (
+    for /f "delims=" %%p in ('type "%OUT%\wsl.pid" 2^>nul') do taskkill /PID %%p /T /F >nul 2>&1
+)
 echo.
 if "%STARTED_SERVICES%"=="1" (
     if "%KEEP%"=="1" (
-        echo   Leaving the effect services running ^(--keep^).
+        echo   Leaving the effect services and Redis running ^(--keep^).
         echo   Stop them with:  taskkill /PID ^<pid in %OUT%\services.pid^> /T /F
+        echo   and             taskkill /PID ^<pid in %OUT%\wsl.pid^> /T /F
     ) else (
         for /f "delims=" %%p in ('type "%OUT%\services.pid" 2^>nul') do taskkill /PID %%p /T /F >nul 2>&1
         echo   Effect services stopped.
