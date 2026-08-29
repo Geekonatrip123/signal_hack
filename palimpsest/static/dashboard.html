@@ -328,6 +328,11 @@ table.t tr:last-child td{border-bottom:none}
       </select>
       <button id="runbtn">Run</button>
       <span class="ctl-sep"></span>
+      <select id="livemode" title="mode for the distributed run">
+        <option value="palimpsest" selected>palimpsest</option>
+        <option value="pinned">pinned</option>
+        <option value="naive">naive</option>
+      </select>
       <button id="runlive" title="producer &rarr; Redis &rarr; orchestrator &rarr; HTTP services">Run distributed</button>
       <span class="ctl-note" id="ctlnote"></span>
     </div>
@@ -1144,6 +1149,7 @@ function renderBoard(data){
 
 /* ------------------------------------------------------------- controls ---- */
 let CONTROL_ENABLED = false;
+let LIVE_SCENARIOS = [];
 const note = (t,cls)=>{ const n=document.getElementById("ctlnote");
   n.textContent=t; n.className="ctl-note"+(cls?" "+cls:""); };
 
@@ -1155,6 +1161,7 @@ async function initControls(){
     const h = await (await fetch("/api/health",{cache:"no-store"})).json();
     CONTROL_ENABLED = !!h.control_enabled;
     if(h.scenarios && h.scenarios.length) names = h.scenarios;
+    if(h.live_scenarios) LIVE_SCENARIOS = h.live_scenarios;
   }catch(e){ /* health is a nicety; the dropdown still populates from the page */ }
 
   const blurb = {};
@@ -1171,6 +1178,24 @@ async function initControls(){
     note("read-only — restart with:  run_dashboard.py --allow-control","warn");
     return;
   }
+
+  /* Only some scenarios survive the trip over the real distributed path. The rest
+     need engine parameters run_orchestrator.py does not expose, so the button says
+     so instead of quietly running poison and looking broken. */
+  function syncLiveButton(){
+    const ok = LIVE_SCENARIOS.length===0 || LIVE_SCENARIOS.includes(sel.value);
+    live.disabled = !ok;
+    live.title = ok
+      ? "producer → Redis → orchestrator → HTTP services"
+      : sel.value+" needs engine parameters the orchestrator CLI does not expose"
+        +" — distributed run supports: "+LIVE_SCENARIOS.join(", ");
+    if(!ok) note(sel.value+" runs in the three panes only — distributed supports "
+                 +LIVE_SCENARIOS.join(", "),"warn");
+    else note("Run drives the 3 panes · Run distributed drives the live one");
+  }
+  sel.addEventListener("change", syncLiveButton);
+  document.getElementById("livemode").addEventListener("change", syncLiveButton);
+  syncLiveButton();
   note("Run drives the 3 panes · Run distributed drives the live one");
   btn.addEventListener("click", async ()=>{
     const scenario = sel.value, pause = document.getElementById("speed").value;
@@ -1189,12 +1214,19 @@ async function initControls(){
   // only the demo journals; the live pane needs the real orchestrator, which is
   // why it gets its own button rather than appearing to update on its own.
   live.addEventListener("click", async ()=>{
-    live.disabled = true; note("starting distributed run — needs services + Redis…","busy");
+    const scenario = sel.value, m = document.getElementById("livemode").value;
+    live.disabled = true;
+    note("distributed "+scenario+" / "+m+" — needs services + Redis…","busy");
     try{
-      const r = await fetch("/api/run_live?count=1&fresh=true",{method:"POST"});
-      if(!r.ok) throw new Error("HTTP "+r.status);
+      const r = await fetch(`/api/run_live?scenario=${encodeURIComponent(scenario)}`
+                            + `&mode=${encodeURIComponent(m)}&count=1&fresh=true`,
+                            {method:"POST"});
+      if(!r.ok){
+        const d = await r.json().catch(()=>({}));
+        throw new Error(d.detail || ("HTTP "+r.status));
+      }
     }catch(e){
-      note("could not launch: "+e.message,"warn"); live.disabled=false;
+      note(e.message,"warn"); live.disabled=false;
     }
   });
 }

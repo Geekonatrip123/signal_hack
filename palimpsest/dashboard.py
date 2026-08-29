@@ -19,6 +19,23 @@ DEFAULT_PANES = {
 }
 
 
+# Scenarios the distributed path can genuinely express. The others need engine
+# parameters run_orchestrator.py does not expose -- a divergence trigger (residue),
+# a crash policy (crash), or faults injected partway through a run (compfail,
+# compretry) -- so they are refused rather than silently run as poison.
+_NO_FAULTS = {
+    "fail_tools": [], "timeout_tools": [], "late_delivery_tools": [],
+    "down_services": [], "fail_compensation_tools": [], "empty_rotas": [],
+    "latency_s": 0.0, "jitter_s": 0.0,
+}
+LIVE_SCENARIOS = {
+    "poison": dict(_NO_FAULTS, empty_rotas=["rota-X"]),
+    "zombie": dict(_NO_FAULTS, timeout_tools=["page_oncall"],
+                   late_delivery_tools=["page_oncall"], late_delivery_delay_s=8.0),
+    "redelivery": dict(_NO_FAULTS),
+}
+
+
 def _scenario_names() -> list[str]:
     """Advertised on /api/health so the page can populate its dropdown from the
     registry rather than a hardcoded copy that drifts.  Imported lazily and
@@ -104,6 +121,7 @@ def create_app(panes: dict[str, str] | None = None, allow_control: bool = False,
             "panes": {m: {"db": db, "exists": os.path.exists(db)} for m, db in panes.items()},
             "control_enabled": allow_control,
             "scenarios": sorted(_scenario_names()),
+            "live_scenarios": sorted(LIVE_SCENARIOS),
             "live_db": live_db,
             "live_exists": bool(live_db and os.path.exists(live_db)),
             "running": dict(running),
@@ -134,13 +152,23 @@ def create_app(panes: dict[str, str] | None = None, allow_control: bool = False,
             return {"launched": scenario, "panes": list(panes)}
 
         @app.post("/api/run_live")
-        def run_live(count: int = 1, fresh: bool = True):
+        def run_live(scenario: str = "poison", mode: str = "palimpsest",
+                     count: int = 1, fresh: bool = True):
             """Drive the DISTRIBUTED path: producer -> Redis -> orchestrator -> HTTP."""
             import subprocess
             import sys
 
             if not live_db:
                 raise HTTPException(400, "dashboard started without --live-db")
+            if scenario not in LIVE_SCENARIOS:
+                raise HTTPException(
+                    400,
+                    f"{scenario} cannot run over the distributed path: it needs engine"
+                    f" parameters run_orchestrator.py does not expose."
+                    f" Available: {', '.join(sorted(LIVE_SCENARIOS))}",
+                )
+            if mode not in ("palimpsest", "pinned", "naive"):
+                raise HTTPException(400, f"unknown mode {mode}")
 
             def worker():
                 with lock:
@@ -155,9 +183,10 @@ def create_app(panes: dict[str, str] | None = None, allow_control: bool = False,
                             oracle = HttpLedger()
                             world.reset()
                             oracle.reset()
-                            # rota-X has nobody on call.
+                            # Always the full set, so a previous scenario's faults
+                            # are cleared rather than left to bleed into this run.
                             for svc in ("ticket", "channel", "pager"):
-                                world.set_faults(svc, {"empty_rotas": ["rota-X"]})
+                                world.set_faults(svc, LIVE_SCENARIOS[scenario])
                             world.close()
                             oracle.close()
                         except Exception:
@@ -169,10 +198,12 @@ def create_app(panes: dict[str, str] | None = None, allow_control: bool = False,
                             except OSError:
                                 pass
                     py = sys.executable
-                    subprocess.run([py, "run_producer.py", "--demo", "--count", str(count)],
-                                   capture_output=True, timeout=60)
+                    pub = [py, "run_producer.py", "--demo", "--count", str(count)]
+                    if scenario == "redelivery":
+                        pub.append("--redeliver")
+                    subprocess.run(pub, capture_output=True, timeout=60)
                     subprocess.run([py, "run_orchestrator.py", "--once", "--source", "redis",
-                                    "--world", "http", "--db", live_db],
+                                    "--world", "http", "--db", live_db, "--mode", mode],
                                    capture_output=True, timeout=180)
                 except Exception:
                     pass
@@ -181,6 +212,6 @@ def create_app(panes: dict[str, str] | None = None, allow_control: bool = False,
                         running.pop("live", None)
 
             threading.Thread(target=worker, daemon=True).start()
-            return {"launched": "distributed", "db": live_db}
+            return {"launched": scenario, "mode": mode, "db": live_db}
 
     return app

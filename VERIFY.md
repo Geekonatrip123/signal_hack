@@ -188,6 +188,13 @@ Covers HTTP round trips, idempotency across a real socket, probe observability,
 epoch fencing enforced by the service (HTTP 409), a genuine read timeout yielding
 `unknown`, a refused connection yielding `failed`, and five Redis stream checks.
 
+**The distributed run supports three scenarios.** `poison`, `zombie` and `redelivery`
+are pure fault configuration plus delivery, so `run_orchestrator.py` can express them.
+`residue`, `compfail`, `compretry` and `crash` need engine parameters the orchestrator
+CLI does not expose — a divergence trigger, a crash policy, or faults injected partway
+through a run — so the dashboard refuses them for the live pane rather than silently
+running poison. They still run in the three panes.
+
 > **A `skip` is a warning, not a pass.** `skip redis reachable` means the stream was
 > never exercised and five of those checks proved nothing. `verify.bat` treats any
 > skip as a failure for this reason.
