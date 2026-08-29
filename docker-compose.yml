@@ -1,0 +1,21 @@
+# Redis Streams for the alert ingest (3.2).  One `docker compose up -d`.
+#
+# Entirely optional: palimpsest.ingest.alert_source() falls back to an in-process
+# queue if Redis is unreachable, and says so on stdout.  Do not discover a Docker
+# problem with no plan B (8.1).
+#
+#   docker compose up -d
+#   PALIMPSEST_REDIS=1 python demo.py
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: palimpsest-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "no", "--save", ""]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
