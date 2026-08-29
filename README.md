@@ -11,9 +11,7 @@ this journal: the path the system abandoned is still legible, which is what make
 cleanup provable and the audit trail real.
 
 Two-page design summary: [`DESIGN.md`](DESIGN.md) — architecture, the seven design
-decisions and the scenario analysis. Full design document:
-[`PALIMPSEST-master-plan-v2.md`](PALIMPSEST-master-plan-v2.md); section numbers
-throughout this README and in the source comments refer to it.
+decisions and the scenario analysis. 
 
 ---
 
